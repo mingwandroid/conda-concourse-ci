@@ -5,9 +5,11 @@ import logging
 import os
 import re
 import subprocess
+import sys
 
 from conda_build import api, conda_interface
 from conda_build.build import is_package_built
+from conda_build.os_utils.external import find_executable
 from conda_build.metadata import MetaData, find_recipe
 
 import networkx as nx
@@ -49,7 +51,11 @@ def _git_changed_files(git_rev, stop_rev=None, git_root=''):
         git_root = os.getcwd()
     if stop_rev:
         git_rev = "{0}..{1}".format(git_rev, stop_rev)
-    output = subprocess.check_output(['git', 'diff-tree', '--no-commit-id',
+    git = find_executable('git')
+    if not git:
+        log.error("Could not find a git executable")
+        sys.exit(1)
+    output = subprocess.check_output([git, 'diff-tree', '--no-commit-id',
                                       '--name-only', '-r', git_rev],
                                      cwd=git_root)
     files = output.decode().splitlines()
@@ -194,8 +200,8 @@ def add_recipe_to_graph(recipe_dir, graph, run, worker, conda_resolve,
     try:
         rendered = _get_or_render_metadata(recipe_dir, worker, config=config, finalize=finalize)
     except (IOError, SystemExit, RuntimeError) as e:
-        log.warn('invalid recipe dir or other recipe issue: %s - skipping.  Error was %s',
-                 recipe_dir, e)
+        log.warning('invalid recipe dir or other recipe issue: %s - skipping.  Error was %s',
+                    recipe_dir, e)
         return None
 
     name = None
@@ -383,12 +389,16 @@ def _write_recipe_log(path):
     if not os.path.exists(os.path.join(path, "meta.yaml")):
         path = os.path.join(path, "recipe")
     try:
-        output = subprocess.check_output(['git', 'log'], cwd=path)
+        git = find_executable('git')
+        if not git:
+            log.error("Could not find a git executable")
+            sys.exit(1)
+        output = subprocess.check_output([git, 'log'], cwd=path)
         with open(os.path.join(path, "recipe_log.txt"), "wb") as f:
             f.write(output)
     except subprocess.CalledProcessError as e:
-        log.warn("Unable to produce recipe git log for %s. Error was: %s",
-                 path, e)
+        log.warning("Unable to produce recipe git log for %s. Error was: %s",
+                    path, e)
         pass
     except FileNotFoundError as e:
         log.warn(f"File {path} does not exist. Error was {e}. Skipping.")
@@ -456,8 +466,8 @@ def _installable(name, version, build_string, config, conda_resolve):
                                              _fix_any(build_string, config)]))
     installable = conda_resolve.find_matches(ms)
     if not installable:
-        log.warn("Dependency {name}, version {ver} is not installable from your "
-                 "channels: {channels} with subdir {subdir}.  Seeing if we can build it..."
+        log.warning("Dependency {name}, version {ver} is not installable from your "
+                    "channels: {channels} with subdir {subdir}.  Seeing if we can build it..."
                  .format(name=name, ver=version, channels=config.channel_urls,
                          subdir=config.host_subdir))
     return installable
